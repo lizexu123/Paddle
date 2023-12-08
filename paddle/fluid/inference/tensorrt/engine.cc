@@ -180,11 +180,11 @@ bool TensorRTEngine::Enqueue(nvinfer1::IExecutionContext *context,
                "entire graph.";
     return cuda_graph_.Launch(stream);
   }
-// #if IS_TRT_VERSION_GE(8500)
-//   for (size_t j = 0; j < buffers->size(); ++j) {
-//     context->setTensorAddress(m_IOTensorNames[j].c_str(), (*buffers)[j]);
-//   }
-// #endif
+  // #if IS_TRT_VERSION_GE(8500)
+  //   for (size_t j = 0; j < buffers->size(); ++j) {
+  //     context->setTensorAddress(m_IOTensorNames[j].c_str(), (*buffers)[j]);
+  //   }
+  // #endif
 
   bool ret;
   if (!with_dynamic_shape()) {
@@ -192,7 +192,7 @@ bool TensorRTEngine::Enqueue(nvinfer1::IExecutionContext *context,
   } else {
 #if IS_TRT_VERSION_GE(8500)
     ret = context->enqueueV3(stream);
-    std::cout<<"enqueueV3"<<std::endl;
+    std::cout << "enqueueV3" << std::endl;
 #else
     ret = context->enqueueV2(buffers->data(), stream, nullptr);
 #endif
