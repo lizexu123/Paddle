@@ -618,7 +618,7 @@ class TensorRTEngineOp : public framework::OperatorBase {
           }
         }
       } else {
-//         bool isShapeInferenceIO{false};
+        bool isShapeInferenceIO{false};
 // #if IS_TRT_VERSION_GE(8500)
 //         auto const &binding_name =
 //             engine->engine()->getIOTensorName(bind_index);
@@ -633,10 +633,19 @@ class TensorRTEngineOp : public framework::OperatorBase {
 //             trt_context->setInputShape(
 //                 binding_name,
 //                 inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
+//             // 获取并打印绑定的当前维度，以验证设置是否成功
+//             nvinfer1::Dims current_dims =
+//                 trt_context->getBindingDimensions(bind_index);
+//             std::cout << "Current binding dimensions for index " << bind_index
+//                       << ": ";
+//             for (int i = 0; i < current_dims.nbDims; ++i) {
+//               std::cout << current_dims.d[i] << " ";
+//             }
+//             std::cout << std::endl;
 //           }
 //         }
 // #endif
-#if IS_TRT_VERSION_GE(6000) && IS_TRT_VERSION_LT(8500)
+#if IS_TRT_VERSION_GE(6000) 
         // auto const *binding_name =
         //     engine->engine()->getIOTensorName(bind_index);
         // std::cout << "enqueueV3 binding_name:" << binding_name << std::endl;
