@@ -620,28 +620,34 @@ class TensorRTEngineOp : public framework::OperatorBase {
       } else {
         bool isShapeInferenceIO{false};
 #if IS_TRT_VERSION_GE(8500)
-        // const auto numInputs=engine->engine()->getNbBindings();
-        // int32_t const endBindingIndex = engine->engine()->getNbBindings();
+        const auto numInputs = engine->engine()->getNbBindings();
+        int32_t const endBindingIndex = engine->engine()->getNbBindings();
+        std::cout<<"endBindingIndex:"<<endBindingIndex<<std::endl;
+        for (int i = 0; i < endBindingIndex; ++i) {
+          const auto tensorName = infer_engine_->getIOTensorName(i);
+          std::cout << "tensorName:" << tensorName << std::endl;
+          m_IOTensorNames.emplace_back(tensorName);
+        }
         auto const &binding_name =
             engine->engine()->getIOTensorName(bind_index);
         // std::cout << "binding_name:" << binding_name << std::endl;
-        trt_context->setInputShape(binding_name,  inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
+        trt_context->setInputShape(
+            binding_name, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
         std::cout << "Current binding dimensions for index " << bind_index
-                    << ": ";
-        auto tims=trt_context->getTensorShape(binding_name);
-        for(int i=0;i<tims.nbDims;++i){
-          std::cout<<tims.d[i]<<" ";
+                  << ": ";
+        auto tims = trt_context->getTensorShape(binding_name);
+        for (int i = 0; i < tims.nbDims; ++i) {
+          std::cout << tims.d[i] << " ";
         }
-        std::cout<<std::endl;
+        std::cout << std::endl;
         isShapeInferenceIO = engine->engine()->isShapeInferenceIO(binding_name);
         std::cout << "isShapeInferenceIO:" << isShapeInferenceIO << std::endl;
         bool const useEnqueueV3 =
             !engine->engine()->hasImplicitBatchDimension();
 
         if (useEnqueueV3) {
-          if (isShapeInferenceIO &&
-              engine->engine()->bindingIsInput(bind_index)) {
-            trt_context->setInputTensorAddress(binding_name, buffers[bind_index]);
+          if (isShapeInferenceIO) {
+            trt_context->setTensorAddress(binding_name, buffers[bind_index]);
           }
         }
 
