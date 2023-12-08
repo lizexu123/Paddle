@@ -96,13 +96,11 @@ nvinfer1::IExecutionContext *TensorRTEngine::context() {
     } else {
       infer_context = infer_engine_->createExecutionContext();
     }
-    #if IS_TRT_VERSION_GE(8500)
+#if IS_TRT_VERSION_GE(8500)
     int32_t const endBindingIndex = infer_engine_->getNbIOTensors();
     for (int i = 0; i < endBindingIndex; ++i) {
       const auto tensorName = infer_engine_->getIOTensorName(i);
       m_IOTensorNames.emplace_back(tensorName);
-      const auto tensorType = infer_engine_->getTensorIOMode(tensorName);
-      const auto tensorShape = infer_engine_->getTensorShape(tensorName);
     }
 #endif
     PADDLE_ENFORCE_NOT_NULL(
@@ -177,12 +175,83 @@ bool TensorRTEngine::Enqueue(nvinfer1::IExecutionContext *context,
                              std::vector<void *> *buffers,
                              int batch_size,
                              cudaStream_t stream) {
+  int32_t const endBindingIndex = infer_engine_->getNbIOTensors();
+  if (with_dynamic_shape()) {
+    LOG(INFO) << "Run Paddle-TRT Dynamic Shape mode.";
+    for (int i = 0; i < max_profile_num_; i++) {
+      for (auto &input : min_input_shape()) {
+#if IS_TRT_VERSION_LT(7100)
+        // trt6/trt7011 will check all_of input > 0
+        if (!(std::all_of(input.second.begin(),
+                          input.second.end(),
+                          [](int x) { return x > 0; }) &&
+              std::all_of(max_input_shape()[input.first].begin(),
+                          max_input_shape()[input.first].end(),
+                          [](int x) { return x > 0; }) &&
+              std::all_of(optim_input_shape()[input.first].begin(),
+                          optim_input_shape()[input.first].end(),
+                          [](int x) { return x > 0; }))) {
+          continue;
+        }
+#endif
+        LOG(INFO) << "TRT dynamic_shape set " << input.first
+                  << " min: " << Vec2Str(input.second)
+                  << ", max: " << Vec2Str(max_input_shape()[input.first])
+                  << ", opt: " << Vec2Str(optim_input_shape()[input.first]);
+        optim_profiles_[i]->setDimensions(
+            input.first.c_str(),
+            nvinfer1::OptProfileSelector::kMIN,
+            Vec2TRT_Dims(input.second, input.first, true));
+        optim_profiles_[i]->setDimensions(
+            input.first.c_str(),
+            nvinfer1::OptProfileSelector::kMAX,
+            Vec2TRT_Dims(max_input_shape()[input.first], input.first, true));
+        optim_profiles_[i]->setDimensions(
+            input.first.c_str(),
+            nvinfer1::OptProfileSelector::kOPT,
+            Vec2TRT_Dims(optim_input_shape()[input.first], input.first, true));
+      }
+#if IS_TRT_VERSION_GE(8500)
+      for (int i = 0; i < endBindingIndex; ++i) {
+        const auto tensorName = infer_engine_->getIOTensorName(i);
+        auto const &name = infer_engine_->getIOTensorName(i);
+        auto const &mode = infer_engine_->getTensorIOMode(name);
+        if (mode == nvinfer1::TensorIOMode::kINPUT) {
+          nvinfer1::Dims const dims = context->getTensorShape(name);
+          isShapeInferenceIO = infer_engine_->isShapeBinding(i);
+          nvinfer1::Dims inputDims;
+          inputDims.nbDims = dims.nbDims;
+          inputDims.d[0] = batch_size;
+          for (int32_t m = 1u; m < dims.nbDims; m++) {
+            inputDims.d[m] = dims.d[m];
+          }
+          if (!isShapeInferenceIO) {
+            context->setInputShape(tensorName, inputDims);
+          }
+        }
+      }
+#endif
+    }
+  }
+
+  // Ensure all dynamic bindings have been defined.
+  if (!context->allInputDimensionsSpecified()) {
+    throw std::runtime_error("Error, not all required dimensions specified.");
+  }
+  // set the address of the input and output buffers
+  for (size_t j = 0; j < buffers->size(); ++j) {
+    bool status =
+        context->setTensorAddress(m_IOTensorNames[j].c_str(), (*buffers)[j]);
+    if (!status) {
+      return false;
+    }
+  }
   if (cudagraph_inited_) {
     VLOG(1) << "cuda_graph init success, so we will use cuda graph launch the "
                "entire graph.";
     return cuda_graph_.Launch(stream);
   }
-  
+
   bool ret;
   if (!with_dynamic_shape()) {
     ret = context->enqueue(batch_size, buffers->data(), stream, nullptr);
@@ -261,7 +330,8 @@ void TensorRTEngine::FreezeNetwork() {
 
       for (auto &t : all_t) {
         if (!quant_dynamic_range_.count(t)) {
-          VLOG(3) << "We are in trt int8 mode(not calibration), scale not set"
+          VLOG(3) << "We are in trt int8 mode(not calibration), scale not "
+                     "set"
                   << " for tensor " << t->getName()
                   << ", this might be ok when trt does not need this range";
         }
@@ -274,9 +344,9 @@ void TensorRTEngine::FreezeNetwork() {
       LOG(WARNING) << "TensorRT DLA must be used with int8 or fp16, but you "
                       "set float32, so DLA is not used.";
     } else if (infer_builder_->getNbDLACores() == 0) {
-      LOG(WARNING)
-          << "TensorRT DLA is set by config, but your device does not have "
-             "DLA, so DLA is not used.";
+      LOG(WARNING) << "TensorRT DLA is set by config, but your device "
+                      "does not have "
+                      "DLA, so DLA is not used.";
     } else {
       if (params_.dla_core < 0 ||
           params_.dla_core >= infer_builder_->getNbDLACores()) {
@@ -465,12 +535,12 @@ void TensorRTEngine::DeclareOutput(const nvinfer1::ILayer *layer,
                         "of the network at the same time.",
                         name));
   network()->markOutput(*output);
-  PADDLE_ENFORCE_EQ(
-      output->isNetworkOutput(),
-      true,
-      platform::errors::InvalidArgument(
-          "The output %s of TRT engine should be the output of the network.",
-          name));
+  PADDLE_ENFORCE_EQ(output->isNetworkOutput(),
+                    true,
+                    platform::errors::InvalidArgument(
+                        "The output %s of TRT engine should be the "
+                        "output of the network.",
+                        name));
 }
 
 void TensorRTEngine::DeclareOutput(const std::string &name) {
@@ -563,8 +633,8 @@ nvinfer1::ITensor *TensorRTEngine::ConvertWeight2ITensor(
     trt_in_shape.nbDims = 1;
     trt_in_shape.d[0] = 1;
   }
-  // In fact , this is not always right, because we can't determine if the 0th
-  // dimension is batch. Just for run chenqu's model
+  // In fact , this is not always right, because we can't determine if
+  // the 0th dimension is batch. Just for run chenqu's model
   if (!with_dynamic_shape()) {
     trt_in_shape.nbDims--;
     for (int i = 0; i < trt_in_shape.nbDims; i++) {
@@ -598,9 +668,9 @@ void TensorRTEngine::Deserialize(const std::string &engine_serialized_data) {
       LOG(WARNING) << "TensorRT DLA must be used with int8 or fp16, but you "
                       "set float32, so DLA is not used.";
     } else if (infer_runtime_->getNbDLACores() == 0) {
-      LOG(WARNING)
-          << "TensorRT DLA is set by config, but your device does not have "
-             "DLA, so DLA is not used.";
+      LOG(WARNING) << "TensorRT DLA is set by config, but your device "
+                      "does not have "
+                      "DLA, so DLA is not used.";
     } else {
       if (params_.dla_core < 0 ||
           params_.dla_core >= infer_runtime_->getNbDLACores()) {
@@ -621,9 +691,12 @@ void TensorRTEngine::Deserialize(const std::string &engine_serialized_data) {
   PADDLE_ENFORCE_NOT_NULL(
       infer_engine_,
       platform::errors::Fatal(
-          "Building TRT cuda engine failed when deserializing engine info. "
-          "Please check:\n1. Your TRT serialization is generated and loaded "
-          "on the same GPU architecture;\n2. The Paddle Inference version of "
+          "Building TRT cuda engine failed when deserializing engine "
+          "info. "
+          "Please check:\n1. Your TRT serialization is generated and "
+          "loaded "
+          "on the same GPU architecture;\n2. The Paddle Inference "
+          "version of "
           "generating serialization file and doing inference are "
           "consistent."));
 

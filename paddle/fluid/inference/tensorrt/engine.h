@@ -615,6 +615,8 @@ class TensorRTEngine {
  public:
   thread_local static int predictor_id_per_thread;
   std::vector<std::string> m_IOTensorNames;
+  // std::vector<nvinfer1::Dims3> m_inputDims;
+  // std::vector<nvinfer1::Dims> m_outputDims;
 };  // class TensorRTEngine
 
 // Add a layer__ into engine__ with args ARGS.
