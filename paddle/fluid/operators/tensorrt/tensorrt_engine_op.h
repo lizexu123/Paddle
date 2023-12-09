@@ -641,11 +641,11 @@ class TensorRTEngineOp : public framework::OperatorBase {
         for (int i = 0; i < trt_dims.nbDims; ++i) {
           std::cout << "Dimension " << i << ": " << trt_dims.d[i] << std::endl;
         }
-        trt_context->setBindingDimensions(
-              bind_index, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
-
-        // trt_context->setInputShape(
-        //     binding_name, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
+        // trt_context->setBindingDimensions(
+        //       bind_index, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
+        
+        trt_context->setInputShape(
+            binding_name, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
 
         std::cout << "Current binding dimensions for index " << bind_index
                   << ": ";
