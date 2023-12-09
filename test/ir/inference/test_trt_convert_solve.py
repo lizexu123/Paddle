@@ -29,10 +29,10 @@ class TrtConvertSolve(TrtLayerAutoScanTest):
 
     def sample_program_configs(self):
         def generate_input1():
-            return np.random.random([2, 8, 8]).astype(np.float32)
+            return np.ones([2, 8, 8]).astype(np.float32)
 
         def generate_input2():
-            return np.random.random([2, 8, 6]).astype(np.float32)
+            return np.ones([2, 8, 6]).astype(np.float32)
 
         ops_config = [
             {
