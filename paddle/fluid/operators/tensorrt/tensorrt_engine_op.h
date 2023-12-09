@@ -505,12 +505,14 @@ class TensorRTEngineOp : public framework::OperatorBase {
 
     // Get the total over all profiles
     const int num_bindings = engine->GetNbBindings();
+    std::cout << "num_bindings:" << num_bindings << std::endl;
     std::vector<void *> buffers(num_bindings, nullptr);
     std::vector<std::string> m_IOTensorNames;
 
     int32_t const endBindingIndex = engine->engine()->getNbIOTensors();
     for (int i = 0; i < endBindingIndex; ++i) {
       const auto tensorName = engine->engine()->getIOTensorName(i);
+
       m_IOTensorNames.emplace_back(tensorName);
     }
 
@@ -530,6 +532,7 @@ class TensorRTEngineOp : public framework::OperatorBase {
       std::string x_real = x;
       auto idx = x.find("_cast_auto_mixed.tmp_");
       x = x.substr(0, idx);
+      
 
 #if IS_TRT_VERSION_LT(8000)
       // trt may remove input tensor if it's unused or used only at compile-time
@@ -620,19 +623,30 @@ class TensorRTEngineOp : public framework::OperatorBase {
       } else {
         bool isShapeInferenceIO{false};
 #if IS_TRT_VERSION_GE(8500)
-        const auto numInputs = engine->engine()->getNbBindings();
-        int32_t const endBindingIndex = engine->engine()->getNbBindings();
-        std::cout<<"endBindingIndex:"<<endBindingIndex<<std::endl;
-        for (int i = 0; i < endBindingIndex; ++i) {
-          const auto tensorName = infer_engine_->getIOTensorName(i);
-          std::cout << "tensorName:" << tensorName << std::endl;
-          m_IOTensorNames.emplace_back(tensorName);
-        }
-        auto const &binding_name =
+        // const auto numInputs = engine->engine()->getNbBindings();
+        auto const *binding_name =
             engine->engine()->getIOTensorName(bind_index);
-        // std::cout << "binding_name:" << binding_name << std::endl;
-        trt_context->setInputShape(
-            binding_name, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
+        std::cout << "binding_name:" << binding_name << std::endl;
+        std::cout << "上边的binding_index:" << bind_index << std::endl;
+
+        isShapeInferenceIO = engine->engine()->isShapeBinding(bind_index);
+        int32_t const endBindingIndex = engine->engine()->getNbBindings();
+        std::cout << "endBindingIndex:" << endBindingIndex << std::endl;
+
+        std::cout << "x输入长什么样子" << x.c_str() << std::endl;
+        nvinfer1::Dims trt_dims =
+            inference::tensorrt::Vec2TRT_Dims(t_shape, x, true);
+        // 打印维度
+        std::cout << "Number of dimensions" << trt_dims.nbDims << std::endl;
+        for (int i = 0; i < trt_dims.nbDims; ++i) {
+          std::cout << "Dimension " << i << ": " << trt_dims.d[i] << std::endl;
+        }
+        trt_context->setBindingDimensions(
+              bind_index, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
+
+        // trt_context->setInputShape(
+        //     binding_name, inference::tensorrt::Vec2TRT_Dims(t_shape, x, true));
+
         std::cout << "Current binding dimensions for index " << bind_index
                   << ": ";
         auto tims = trt_context->getTensorShape(binding_name);
@@ -640,16 +654,8 @@ class TensorRTEngineOp : public framework::OperatorBase {
           std::cout << tims.d[i] << " ";
         }
         std::cout << std::endl;
-        isShapeInferenceIO = engine->engine()->isShapeInferenceIO(binding_name);
-        std::cout << "isShapeInferenceIO:" << isShapeInferenceIO << std::endl;
-        bool const useEnqueueV3 =
-            !engine->engine()->hasImplicitBatchDimension();
 
-        if (useEnqueueV3) {
-          if (isShapeInferenceIO) {
-            trt_context->setTensorAddress(binding_name, buffers[bind_index]);
-          }
-        }
+        std::cout << "isShapeInferenceIO:" << isShapeInferenceIO << std::endl;
 
 #endif
 #if IS_TRT_VERSION_GE(6000) && IS_TRT_VERSION_LT(8500)
@@ -759,6 +765,7 @@ class TensorRTEngineOp : public framework::OperatorBase {
             "The TRT Engine OP only support "
             "float/double/int32_t/int64_t/float16/bool input."));
       }
+      std::cout << "buffers的大小是多少" << buffers.size() << std::endl;
     }
 
     // Bind output tensor to TRT.
@@ -773,6 +780,7 @@ class TensorRTEngineOp : public framework::OperatorBase {
       std::vector<int> ddim;
 
       if (!engine->with_dynamic_shape()) {
+        // auto dims = engine->engine()->getTensorShape(binding_name);
         auto dims = engine->engine()->getBindingDimensions(bind_index);
         ddim.push_back(runtime_batch);
         for (int i = 0; i < dims.nbDims; i++) {
@@ -780,7 +788,9 @@ class TensorRTEngineOp : public framework::OperatorBase {
         }
       } else {
 #if IS_TRT_VERSION_GE(6000)
+        // auto dims = engine->engine()->getTensorShape(binding_name);
         auto dims = trt_context->getBindingDimensions(bind_index);
+
         int nb_dims = dims.nbDims;
         for (; nb_dims > 0; nb_dims--) {
           // some 'x 1' of shape is normal, no need to remove it
@@ -789,6 +799,7 @@ class TensorRTEngineOp : public framework::OperatorBase {
             break;
         }
         for (int i = 0; i < nb_dims; i++) ddim.push_back(dims.d[i]);
+
 #endif
       }
       auto *fluid_v = scope.FindVar(y);
@@ -811,9 +822,20 @@ class TensorRTEngineOp : public framework::OperatorBase {
       // get adr and set type
       VLOG(1) << "trt output [" << y << "] dtype is "
               << TRT2FluidDataType(trt_type);
+      std::cout << "buffers的bind_index是什么" << bind_index << std::endl;
+
       buffers[bind_index] = static_cast<void *>(
           fluid_t->mutable_data(dev_place, TRT2FluidDataType(trt_type)));
       output_index += 1;
+      for(size_t i=0;i<buffers.size();i++)
+      {
+        std::cout<<"mIOtensorNames[i]:"<<m_IOTensorNames[i].c_str()<<std::endl;
+        bool status=trt_context->setTensorAddress(m_IOTensorNames[i].c_str(),buffers[i]);
+        if(!status)
+        {
+          std::cout<<"setTensorAddress error"<<std::endl;
+        }
+      }
     }
 
     if (!engine->with_dynamic_shape()) {
