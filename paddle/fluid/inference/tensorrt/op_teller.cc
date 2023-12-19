@@ -47,6 +47,7 @@ struct SimpleOpTypeSetTeller : public Teller {
 #endif
 #if IS_TRT_VERSION_GE(7000)
     teller_set.insert("tile");
+    int8_teller_set.insert("tile");
     teller_set.insert("flatten_contiguous_range");
     int8_teller_set.insert("flatten_contiguous_range");
     teller_set.insert("rnn");
@@ -103,11 +104,11 @@ struct SimpleOpTypeSetTeller : public Teller {
     }
 
     // do not support the op which is labeled the `skip_quant`
-    if ((desc.HasAttr("namescope") &&
-         PADDLE_GET_CONST(std::string, desc.GetAttr("op_namescope")) ==
-             "/skip_quant_2/") ||
-        desc.HasAttr("skip_quant"))
-      return false;
+    // if ((desc.HasAttr("namescope") &&
+    //      PADDLE_GET_CONST(std::string, desc.GetAttr("op_namescope")) ==
+    //          "/skip_quant_2/") ||
+    //     desc.HasAttr("skip_quant"))
+    //   return false;
     std::unordered_set<std::string> act_op_list = {
         "relu",       "relu6",       "sigmoid",
         "elu",        "selu",        "softsign",
@@ -3299,11 +3300,11 @@ bool OpTeller::Tell(const framework::ir::Node* node,
   const std::string op_type = node->Op()->Type();
   const framework::OpDesc desc = *node->Op();
   // do not support the op which is labeled the `skip_quant`
-  if ((desc.HasAttr("namescope") &&
-       PADDLE_GET_CONST(std::string, desc.GetAttr("op_namescope")) ==
-           "/skip_quant_2/") ||
-      desc.HasAttr("skip_quant"))
-    return false;
+  // if ((desc.HasAttr("namescope") &&
+  //      PADDLE_GET_CONST(std::string, desc.GetAttr("op_namescope")) ==
+  //          "/skip_quant_2/") ||
+  //     desc.HasAttr("skip_quant"))
+  //   return false;
   auto& default_teller = GetDefaultTeller();
   if ((*default_teller)(desc,
                         use_no_calib_int8,
