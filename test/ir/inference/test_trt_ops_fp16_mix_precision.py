@@ -21,7 +21,11 @@ import numpy as np
 
 import paddle
 from paddle import nn, static
-from paddle.inference import Config, PrecisionType, create_predictor
+from paddle.inference import (
+    Config,
+    PrecisionType,
+    create_predictor,
+)
 
 paddle.enable_static()
 
@@ -95,6 +99,7 @@ class TestTRTOptimizationLevel(unittest.TestCase):
         config = Config(
             self.model_prefix + '.pdmodel', self.model_prefix + '.pdiparams'
         )
+        config.switch_ir_debug(True)
         config.enable_use_gpu(256, 0, PrecisionType.Float32)
         config.exp_disable_tensorrt_ops(["relu_1.tmp_0"])
         config.enable_tensorrt_engine(
@@ -107,7 +112,7 @@ class TestTRTOptimizationLevel(unittest.TestCase):
         )
 
         config.exp_specify_tensorrt_subgraph_precision(
-            ["conv2d_1.w_0"], [""], ["conv2d_2.w_0"]
+            ["conv2d_0.w_0"], [""], ["conv2d_2.w_0"]
         )
 
         config.enable_memory_optim()
@@ -124,7 +129,8 @@ class TestTRTOptimizationLevel(unittest.TestCase):
             input_tensor.reshape(img[i].shape)
             input_tensor.copy_from_cpu(img[i].copy())
 
-        predictor.run()
+        for i in range(110):
+            predictor.run()
         results = []
         output_names = predictor.get_output_names()
         for i, name in enumerate(output_names):

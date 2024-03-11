@@ -417,6 +417,10 @@ std::string TensorRtSubgraphPass::CreateTensorRTOp(
       }
     }
   }
+  LOG(INFO) << "Contents of trt_ops_run_float:";
+  for (const auto &item : trt_ops_run_float) {
+    LOG(INFO) << item;
+  }
 
   // Mark TensorRT output nodes as trt outputs
   auto mark_output = Get<bool>("mark_output");
@@ -505,16 +509,35 @@ std::string TensorRtSubgraphPass::CreateTensorRTOp(
     }
   }
 
+  for (const auto &param : trt_params_run_bfp16) {
+    LOG(INFO) << "trt_params_run_bfp16 " << param;
+  }
   for (const auto &para : parameters) {
     if (std::find(trt_params_run_bfp16.begin(),
                   trt_params_run_bfp16.end(),
                   para) != trt_params_run_bfp16.end()) {
+      LOG(INFO) << "trt_params_run_bfp16 循环内部 " << para;
       precision_mode = phi::DataType::BFLOAT16;
       break;
     }
   }
   bool enable_bfp16 = false;
   if (precision_mode == phi::DataType::BFLOAT16) enable_bfp16 = true;
+
+  switch (precision_mode) {
+    case phi::DataType::FLOAT16:
+      LOG(INFO) << "ShangMianFinal precision mode: FLOAT16";
+      break;
+    case phi::DataType::INT8:
+      LOG(INFO) << "ShangMianFinal precision mode: INT8";
+      break;
+    case phi::DataType::BFLOAT16:
+      LOG(INFO) << "ShangMianFinal precision mode: BFLOAT16";
+      break;
+    default:
+      LOG(INFO) << "ShangMianFinal precision mode: Unknown";
+      break;
+  }
 
   auto use_calib_mode = Get<bool>("use_calib_mode");
   auto &subgraph_nodes = *framework::ir::Agent(node).subgraph();
@@ -870,6 +893,22 @@ std::string TensorRtSubgraphPass::CreateTensorRTOp(
 
   // support force ops to run in FP32 precision
   trt_engine->SetRunFloat(trt_ops_run_float);
+
+  // 打印最终的 precision_mode
+  switch (precision_mode) {
+    case phi::DataType::FLOAT16:
+      LOG(INFO) << "Final precision mode: FLOAT16";
+      break;
+    case phi::DataType::INT8:
+      LOG(INFO) << "Final precision mode: INT8";
+      break;
+    case phi::DataType::BFLOAT16:
+      LOG(INFO) << "Final precision mode: BFLOAT16";
+      break;
+    default:
+      LOG(INFO) << "Final precision mode: Unknown";
+      break;
+  }
 
   if (use_static_engine) {
     trt_engine_serialized_data = GetTrtEngineSerializedData(

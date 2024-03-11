@@ -234,6 +234,23 @@ class TensorRTEngineOp : public framework::OperatorBase {
     if (enable_fp16_) {
       precision_mode_ = phi::DataType::FLOAT16;
     }
+    switch (precision_mode_) {
+      case phi::DataType::FLOAT16:
+        LOG(INFO) << "tensorrt_engine_op.h precision mode: FLOAT16";
+        break;
+      case phi::DataType::INT8:
+        LOG(INFO) << "tensorrt_engine_op.h precision mode: INT8";
+        break;
+      case phi::DataType::BFLOAT16:
+        LOG(INFO) << "tensorrt_engine_op.h precision mode: BFLOAT16";
+        break;
+      case phi::DataType::FLOAT32:
+        LOG(INFO) << "tensorrt_engine_op.h precision mode: FLOAT32";
+        break;
+      default:
+        LOG(INFO) << "tensorrt_engine_op.h precision mode: Unknown";
+        break;
+    }
   }
 
   void PrepareTRTEngine(const framework::Scope &scope,
@@ -271,6 +288,25 @@ class TensorRTEngineOp : public framework::OperatorBase {
       return;
     }
     auto *trt_engine = GetEngine(scope, dev_place);
+    auto precision = trt_engine->precision();
+    switch (precision) {
+      case phi::DataType::FLOAT16:
+        LOG(INFO) << "GetEngine precision mode: FLOAT16";
+        break;
+      case phi::DataType::INT8:
+        LOG(INFO) << "GetEngine precision mode: INT8";
+        break;
+      case phi::DataType::BFLOAT16:
+        LOG(INFO) << "GetEngine precision mode: BFLOAT16";
+        break;
+      case phi::DataType::FLOAT32:
+        LOG(INFO) << "GetEngine precision mode: FLOAT32";
+        break;
+      default:
+        LOG(INFO) << "GetEngine precision mode: Unknown";
+        break;
+    }
+
     if (trt_engine->with_dynamic_shape()) {
       // get runtime input shapes and shape tensors.
       std::map<std::string, std::vector<int32_t>> runtime_input_shape;
@@ -304,6 +340,7 @@ class TensorRTEngineOp : public framework::OperatorBase {
                     << "), dims(" << t.dims() << ")";
           }
         }
+
         if ((t.dtype() == phi::DataType::INT32 ||
              t.dtype() == phi::DataType::INT64) &&
             is_shape_tensor) {
@@ -727,6 +764,7 @@ class TensorRTEngineOp : public framework::OperatorBase {
       } else if (t.dtype() == phi::DataType::INT32) {
         buffers[bind_index] = static_cast<void *>(t.data<int32_t>());
       } else if (t.dtype() == phi::DataType::FLOAT16) {
+        LOG(INFO) << "t.dtype() == phi::DataType::FLOAT16";
         buffers[bind_index] = static_cast<void *>(t.data<float16>());
 #if IS_TRT_VERSION_GE(8400)
       } else if (t.dtype() == phi::DataType::BOOL) {
@@ -881,11 +919,30 @@ class TensorRTEngineOp : public framework::OperatorBase {
 
   TensorRTEngine *GetEngine(const framework::Scope &scope,
                             const platform::Place &dev_place) const {
+    // LOG(INFO)<<"trt_engine_"<<trt_engine_;
     if (!trt_engine_) {
       TensorRTEngine::ConstructionParams params;
       params.max_batch_size = max_batch_size_;
       params.max_workspace_size = workspace_size_;
       params.precision = precision_mode_;
+      switch (params.precision) {
+        case phi::DataType::FLOAT16:
+          LOG(INFO) << "GetEngine precision mode: FLOAT16";
+          break;
+        case phi::DataType::INT8:
+          LOG(INFO) << "GetEngine precision mode: INT8";
+          break;
+        case phi::DataType::BFLOAT16:
+          LOG(INFO) << "GetEngine precision mode: BFLOAT16";
+          break;
+        case phi::DataType::FLOAT32:
+          LOG(INFO) << "GetEngine precision mode: FLOAT32";
+          break;
+        default:
+          LOG(INFO) << "GetEngine precision mode: Unknown";
+          break;
+      }
+
       params.calibrator = calibrator_.get();
       params.device_id = dev_place.device;
       params.with_dynamic_shape = with_dynamic_shape_;
