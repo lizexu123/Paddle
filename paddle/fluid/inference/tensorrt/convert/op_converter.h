@@ -176,14 +176,18 @@ class OpConverter {
     std::string all_outpus_name = "(Outputs:";
     std::string all_inpus_name = "(Inputs:";
     for (auto it1 : op_desc.OutputNames()) {
+      LOG(INFO) << "输出的it1" << it1;
       for (auto it2 : op_desc.Output(it1)) {
+        LOG(INFO) << "输出的it2" << it2;
         all_outpus_name += it2;
         all_outpus_name += ",";
       }
     }
     all_outpus_name += ")";
     for (auto it1 : op_desc.InputNames()) {
+      LOG(INFO) << "输入的it1";
       for (auto it2 : op_desc.Input(it1)) {
+        LOG(INFO) << "输入的it2";
         all_inpus_name += it2;
         all_inpus_name += ",";
       }
