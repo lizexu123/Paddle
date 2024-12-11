@@ -739,6 +739,13 @@ def stack_converter(network, paddle_op, inputs):
     concat_layer.axis = axis
     output_tensor = concat_layer.get_output(0)
 
+    # Because we change tensor to 1-dim in 0-dim tensor situation when use trt,
+    # so after stack, output will become 2-dim, if paddle output is a 1d tensor, we need reshape it.
+    if (
+        len(paddle_op.results()[0].shape) == 1
+        and paddle_op.results()[0].shape[0] != -1
+    ):
+        output_tensor = resize_to_1d(network, output_tensor)
     return output_tensor
 
 

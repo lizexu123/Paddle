@@ -14,7 +14,12 @@ if(NOT WITH_ONEDNN)
     ${CMAKE_CURRENT_SOURCE_DIR}/instruction/onednn/onednn_mixed_instruction.cc)
 endif()
 
-if(NOT TENSORRT_FOUND OR NOT WITH_TENSORRT)
+set(TENSORRT_VERSION_NUMBER
+    "${TENSORRT_MAJOR_VERSION}${TENSORRT_MINOR_VERSION}")
+
+if(NOT TENSORRT_FOUND
+   OR NOT WITH_TENSORRT
+   OR ${TENSORRT_VERSION_NUMBER} LESS 85)
   list(REMOVE_ITEM standalone_executor_srcs
        ${CMAKE_CURRENT_SOURCE_DIR}/instruction/tensorrt_engine_instruction.cc)
 endif()

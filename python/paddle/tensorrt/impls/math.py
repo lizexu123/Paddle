@@ -16,6 +16,7 @@ import numpy as np
 import tensorrt as trt
 
 from paddle.tensorrt.converter_utils import (
+    add_1D_constant_layer,
     add_cast_reduce_layer,
     add_elementwise_layer,
     add_reduce_layer,
@@ -40,23 +41,84 @@ def add_converter(network, paddle_op, inputs):
 
 @converter_registry.register("pd_op.scale", trt_version="trt_version_ge=8.0")
 def scale_converter(network, paddle_op, inputs):
-    scale = paddle_op.operands()[1].source().get_defining_op().attrs()["value"]
+    x = inputs[0]
     bias = paddle_op.attrs().get("bias", 0.0)
-    power = paddle_op.attrs().get("power", 1.0)
+    bias_after_scale = paddle_op.attrs().get("bias_after_scale", True)
 
-    # Convert scale, bias, and power to TensorRT weights
-    scale_weight = trt.Weights(np.array([scale], dtype=np.float32))
-    bias_weight = trt.Weights(np.array([bias], dtype=np.float32))
-    power_weight = trt.Weights(np.array([power], dtype=np.float32))
+    is_int = x.dtype == trt.int32
+    if is_int:
+        bias_tensor = add_1D_constant_layer(
+            network,
+            int(bias + 0.5) if bias > 0 else int(bias - 0.5),
+            dtype=np.float32,
+        )
+    else:
+        bias_tensor = add_1D_constant_layer(network, bias, dtype=np.float32)
+    is_bias_0 = bias == 0
+    bias_shapes = [1] * len(x.shape)
+    bias_shapes_tensor = add_1D_constant_layer(network, bias_shapes)
+    reshape_layer_bias = network.add_shuffle(bias_tensor)
+    reshape_layer_bias.set_input(1, bias_shapes_tensor)
 
-    scale_layer = network.add_scale(
-        inputs[0],
-        mode=trt.ScaleMode.UNIFORM,
-        shift=bias_weight,
-        scale=scale_weight,
-        power=power_weight,
-    )
-    return scale_layer.get_output(0)
+    scale_op = paddle_op.operands()[1].source().get_defining_op()
+    if scale_op.name() == "pd_op.full":
+        scale = scale_op.attrs()["value"]
+        has_scale_tensor = False
+        if is_int:
+            scale_tensor = add_1D_constant_layer(
+                network,
+                int(scale + 0.5 if scale > 0 else scale - 0.5),
+                dtype=np.float32,
+            )
+        else:
+            scale_tensor = add_1D_constant_layer(
+                network, scale, dtype=np.float32
+            )
+        is_scale_1 = scale == 1
+    else:
+        has_scale_tensor = True
+        scale_tensor = inputs[1]
+        is_scale_1 = False
+    scale_shapes = [1] * len(x.shape)
+    scale_shapes_tensor = add_1D_constant_layer(network, scale_shapes)
+    reshape_layer_scale = network.add_shuffle(scale_tensor)
+    reshape_layer_scale.set_input(1, scale_shapes_tensor)
+
+    if has_scale_tensor and is_scale_1 and is_bias_0:
+        layer = network.add_identity(x)
+    else:
+        if bias_after_scale:
+            if not is_scale_1:
+                layer = network.add_elementwise(
+                    x,
+                    reshape_layer_scale.get_output(0),
+                    trt.ElementWiseOperation.PROD,
+                )
+                x = layer.get_output(0)
+
+            if not is_bias_0:
+                layer = network.add_elementwise(
+                    x,
+                    reshape_layer_bias.get_output(0),
+                    trt.ElementWiseOperation.SUM,
+                )
+
+        else:
+            if not is_bias_0:
+                layer = network.add_elementwise(
+                    x,
+                    reshape_layer_bias.get_output(0),
+                    trt.ElementWiseOperation.SUM,
+                )
+                x = layer.get_output(0)
+            if not is_scale_1:
+                layer = network.add_elementwise(
+                    x,
+                    reshape_layer_scale.get_output(0),
+                    trt.ElementWiseOperation.PROD,
+                )
+
+    return layer.get_output(0)
 
 
 @converter_registry.register("pd_op.max", trt_version="trt_version_ge=8.0")
