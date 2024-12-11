@@ -16,9 +16,11 @@ import numpy as np
 import tensorrt as trt
 
 import paddle
+from paddle.pir.core import _PADDLE_PIR_DTYPE_2_NUMPY_DTYPE
 from paddle.tensorrt.converter_utils import (
     add_1D_constant_layer,
     cast_tensor,
+    resize_to_1d,
     trt_cast,
     trt_floor_div,
     trt_max,
@@ -46,10 +48,11 @@ def full_converter(network, paddle_op, inputs):
     shape = paddle_op.attrs()["shape"]
     value = paddle_op.attrs().get("value", 1.0)
     dtype = paddle_op.attrs().get("dtype")
-    if dtype == paddle.int32 or dtype == paddle.int64:
-        out_dtype = np.int32
-    else:
-        out_dtype = np.float32
+    out_dtype = np.dtype(_PADDLE_PIR_DTYPE_2_NUMPY_DTYPE[dtype])
+    if out_dtype == np.dtype("float64"):
+        out_dtype = np.dtype("float32")
+    if out_dtype == np.dtype("int64"):
+        out_dtype = np.dtype("int32")
     full_layer = network.add_constant(
         shape, np.full(shape, value, dtype=out_dtype)
     )
@@ -113,9 +116,7 @@ def arange_converter(network, paddle_op, inputs):
 
     number_tensor = trt_max(network, quotient_tensor, zero_tensor)
 
-    reshape_start_layer = trt_reshape(network, start, (1,))
-
-    start_tensor = trt_reduce_to_scalar(network, reshape_start_layer)
+    start_tensor = trt_reshape(network, start, ())
 
     fill_layer = network.add_fill(shape=(), op=trt.FillOperation.LINSPACE)
     fill_layer.set_input(0, number_tensor)
@@ -237,8 +238,6 @@ def full_with_tensor_converter(network, paddle_op, inputs):
             shape_tensor = shape_tensor_list[0]
             if not isinstance(shape_tensor, trt.ITensor):
                 raise TypeError("shape_tensor must be an ITensor")
-            if len(shape_tensor.shape) != 1:
-                raise ValueError("The rank of shape_tensor must be 1")
             tensor_rank = shape_tensor.shape[0]
             shapes_tensor = shape_tensor
         else:
@@ -252,6 +251,7 @@ def full_with_tensor_converter(network, paddle_op, inputs):
             shapes_tensor = concat_layer.get_output(0)
             tensor_rank = len(shape_tensors)
 
+        shapes_tensor = resize_to_1d(network, shapes_tensor)
         fill_layer = network.add_fill(shape=(), op=trt.FillOperation.LINSPACE)
         fill_layer.set_input(0, shapes_tensor)
 
@@ -264,7 +264,7 @@ def full_with_tensor_converter(network, paddle_op, inputs):
         )
     elif dtype == paddle.float32:
         beta_vec = [0.0] * tensor_rank
-        value_input = trt_reduce_to_scalar(network, value_input)
+        value_input = trt_reduce_to_scalar(network, value_input, trt.float32)
         fill_layer.set_input(1, value_input)
         fill_layer.set_input(
             2, add_1D_constant_layer(network, beta_vec, np.float32)

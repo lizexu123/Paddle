@@ -87,6 +87,7 @@ class PaddleToTensorRTConverter:
 
         self.input_info = {}
         self.trt_output_value_map = {}
+        self.engine_num = 0
 
     def find_graph_inputs_outputs(self, group_op):
         operations = next(iter(group_op.blocks())).ops
@@ -191,7 +192,7 @@ class PaddleToTensorRTConverter:
             for operand in op.operands():
                 source = operand.source()
                 if not source.initialized():
-                    _logger.warning(f"Skipping uninitialized source: {source}")
+                    operands.append(None)
                     continue
                 define_op_name = source.get_defining_op().name()
                 if define_op_name == "builtin.combine":
@@ -456,10 +457,12 @@ class PaddleToTensorRTConverter:
             % 10**8
         )
         CACHE_ROOT = get_cache_path()
-        CACHE_FILE = f"{CACHE_ROOT}/engine_{engine_name}.trt"
+        CACHE_FILE = f"{CACHE_ROOT}/engine_{engine_name}_{self.engine_num}.trt"
         with open(CACHE_FILE, "wb") as f:
             f.write(trt_engine)
-        PIR_DUMP_FILE = f"{CACHE_ROOT}/engine_{engine_name}.pir"
+        PIR_DUMP_FILE = (
+            f"{CACHE_ROOT}/engine_{engine_name}_{self.engine_num}.pir"
+        )
         with open(PIR_DUMP_FILE, "w") as f:
             f.write(group_str)
         trt_params.engine_serialized_data = CACHE_FILE
@@ -520,6 +523,7 @@ class PaddleToTensorRTConverter:
         for op in self.program.global_block().ops:
             if op.name() == "cinn_op.group" or op.name() == "builtin.group":
                 _logger.info(f"start process {op.name()}")
+                self.engine_num += 1
                 new_out = self.convert_subgraph_to_trt(self.program, op)
                 orin_out_values = op.results()
                 for o_i in range(len(orin_out_values)):

@@ -271,6 +271,21 @@ def trt_reshape(network, input, new_shape, name="", is_shape_tensor=False):
     return reshape_layer.get_output(0)
 
 
+# resize shape tensor's shape to 1dim
+def resize_to_1d(network, shape_tensor):
+    if shape_tensor is None:
+        return shape_tensor
+    if len(shape_tensor.shape) > 1:
+        # shape_tensor need 1-dim in trt
+        shape_tensor_layer = network.add_shuffle(shape_tensor)
+        numel = 1
+        for ele in shape_tensor.shape:
+            numel *= ele
+        shape_tensor_layer.reshape_dims = [numel]
+        shape_tensor = shape_tensor_layer.get_output(0)
+    return shape_tensor
+
+
 # Get element tensor of 1D shape tensor
 def get_shape_tensor_element(network, x, index, is_scalar=False):
     assert (
@@ -278,7 +293,8 @@ def get_shape_tensor_element(network, x, index, is_scalar=False):
     ), f"The index should be greater or equal than 0, but got {index}"
     index_tensor = add_1D_constant_layer(network, index, is_scalar=is_scalar)
     gather_layer = network.add_gather(input=x, indices=index_tensor, axis=0)
-    return gather_layer.get_output(0)
+    shape_tensor = resize_to_1d(network, gather_layer.get_output(0))
+    return shape_tensor
 
 
 def trt_less(network, a, b):
@@ -414,7 +430,7 @@ def map_trt_dtype(trt_dtype):
 
 
 # Reduce the given tensor in the TensorRT network to a scalar
-def trt_reduce_to_scalar(network, tensor):
+def trt_reduce_to_scalar(network, tensor, dtype=trt.int32):
     if len(tensor.shape) == 0:
         return tensor
     axes = 0
@@ -423,7 +439,8 @@ def trt_reduce_to_scalar(network, tensor):
     reduce_layer = network.add_reduce(
         tensor, trt.ReduceOperation.SUM, axes, keep_dims=False
     )
-    return reduce_layer.get_output(0)
+    scalar = trt_cast(network, reduce_layer.get_output(0), dtype)
+    return scalar
 
 
 def convert_conv2d(network, paddle_op, inputs):
@@ -657,16 +674,3 @@ def squeeze_trt(network, input_tensor, axes):
     reshape_layer = network.add_shuffle(input_tensor)
     reshape_layer.set_input(1, new_shape_tensor)
     return reshape_layer.get_output(0)
-
-
-# resize shape tensor's shape to 1dim
-def resize_to_1d(network, shape_tensor):
-    if len(shape_tensor.shape) > 1:
-        # shape_tensor need 1-dim in trt
-        shape_tensor_layer = network.add_shuffle(shape_tensor)
-        numel = 1
-        for ele in shape_tensor.shape:
-            numel *= ele
-        shape_tensor_layer.reshape_dims = [numel]
-        shape_tensor = shape_tensor_layer.get_output(0)
-    return shape_tensor
